@@ -2,29 +2,26 @@
 // Handles TensorFlow.js model loading and inference
 
 import * as tf from '@tensorflow/tfjs';
-import * as mobilenet from '@tensorflow-models/mobilenet';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
 
 let model = null;
 
 export async function loadModel() {
-    console.log("Loading MobileNet...");
-    // MobileNet is efficient for basic object classification
-    model = await mobilenet.load({
-        version: 2,
-        alpha: 1.0 // 1.0 is standard, lower is faster/less accurate
-    });
+    console.log("Loading COCO-SSD...");
+    // COCO-SSD is an object detection model capable of identifying multiple objects
+    model = await cocoSsd.load();
     console.log("Model loaded successfully.");
     return model;
 }
 
-export async function classifyImage(imageElement) {
+export async function detectObjects(imageElement) {
     if (!model) {
         console.error("Model not loaded yet.");
         return [];
     }
     
-    // Returns array of { className, probability }
-    const predictions = await model.classify(imageElement);
+    // Returns array of { bbox: [x, y, width, height], class: "string", score: number }
+    const predictions = await model.detect(imageElement);
     return predictions;
 }
 

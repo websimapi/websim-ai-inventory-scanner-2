@@ -8,22 +8,21 @@ export function getInventory() {
     return raw ? JSON.parse(raw) : [];
 }
 
-export function saveItem(name, confidence) {
+export function saveItem(name, count, confidence) {
     const inventory = getInventory();
     
-    // Check if item already exists to group them (optional, but good for inventory)
-    // For this scanner, we might want unique entries or grouped. Let's group by name.
+    // Check if item already exists to group them
     const existingIndex = inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
     
     if (existingIndex >= 0) {
-        inventory[existingIndex].count += 1;
+        inventory[existingIndex].count += count;
         inventory[existingIndex].lastScanned = new Date().toISOString();
     } else {
         inventory.push({
             id: Date.now().toString(),
             name: name,
             confidence: confidence,
-            count: 1,
+            count: count,
             firstScanned: new Date().toISOString(),
             lastScanned: new Date().toISOString()
         });

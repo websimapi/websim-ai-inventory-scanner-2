@@ -4,7 +4,7 @@ This is a web-based inventory scanner that utilizes TensorFlow.js (which can lev
 
 ## Features
 -   **Mobile-First Design**: Optimized for single-screen usage.
--   **Object Recognition**: Uses MobileNet V2 for efficient client-side classification.
+-   **Object Detection**: Uses COCO-SSD to detect and count multiple objects in a single scan.
 -   **Inventory Management**: Adds items to a local inventory database, grouping by name.
 -   **Data Persistence**: Uses LocalStorage to save data between sessions.
 -   **Export**: Capability to export inventory as JSON.

@@ -2,7 +2,7 @@
 // Main Application Logic
 
 import { initCamera, takeSnapshot } from './camera.js';
-import { loadModel, classifyImage } from './ai.js';
+import { loadModel, detectObjects } from './ai.js';
 import { getInventory, saveItem, clearInventory, exportInventory } from './storage.js';
 
 // DOM Elements
@@ -30,6 +30,8 @@ const beepSound = new Audio('scan_beep.mp3');
 
 // State
 let currentPredictions = [];
+let currentGroupedResults = [];
+let selectedGroupIndex = 0;
 
 async function main() {
     try {
@@ -61,15 +63,44 @@ scanBtn.addEventListener('click', async () => {
     scanBtn.disabled = true;
     scanBtn.innerText = "Processing...";
     
-    // Capture
-    const snapshotData = takeSnapshot(videoEl, canvasEl);
+    // 1. Capture basic snapshot to canvas
+    takeSnapshot(videoEl, canvasEl);
     
-    // Analyze
-    // We pass the video element itself to TFJS (it's faster than converting to image data manually)
-    currentPredictions = await classifyImage(videoEl);
+    // 2. Run Object Detection
+    currentPredictions = await detectObjects(videoEl);
     
-    // Show Results
-    showResultModal(snapshotData, currentPredictions);
+    // 3. Draw Bounding Boxes on Canvas
+    const ctx = canvasEl.getContext('2d');
+    ctx.font = '18px sans-serif';
+    ctx.textBaseline = 'top';
+
+    currentPredictions.forEach(prediction => {
+        const [x, y, width, height] = prediction.bbox;
+        const color = '#00e676';
+        
+        // Box
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(x, y, width, height);
+        
+        // Label background
+        const textWidth = ctx.measureText(prediction.class).width;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, textWidth + 10, 24);
+        
+        // Label text
+        ctx.fillStyle = '#000000';
+        ctx.fillText(prediction.class, x + 5, y + 2);
+    });
+
+    // 4. Get updated image data
+    const annotatedImageSrc = canvasEl.toDataURL('image/png');
+    
+    // 5. Group results by class
+    processDetections(currentPredictions);
+
+    // 6. Show Results
+    showResultModal(annotatedImageSrc);
     
     scanBtn.disabled = false;
     scanBtn.innerText = "SCAN ITEM";
@@ -92,14 +123,20 @@ saveBtn.addEventListener('click', () => {
     const finalName = itemNameInput.value.trim();
     if (!finalName) return;
     
-    const confidence = currentPredictions[0] ? currentPredictions[0].probability : 0;
-    saveItem(finalName, confidence);
+    // Get the currently selected group details
+    const selectedGroup = currentGroupedResults[selectedGroupIndex];
+    // If user typed a completely new name, we still use the count from the selected group
+    // or default to 1 if something weird happened.
+    const count = selectedGroup ? selectedGroup.count : 1;
+    const confidence = selectedGroup ? selectedGroup.avgScore : 0.9;
+    
+    saveItem(finalName, count, confidence);
     
     updateInventoryCount();
     resultModal.classList.add('hidden');
     
-    // Small success feedback
-    aiStatus.innerText = `Saved: ${finalName}`;
+    // Feedback
+    aiStatus.innerText = `Saved: ${count} x ${finalName}`;
     setTimeout(() => {
         aiStatus.innerText = "System Ready";
     }, 2000);
@@ -118,26 +155,50 @@ exportBtn.addEventListener('click', () => {
 });
 
 // Helper Functions
-function showResultModal(imageSrc, predictions) {
+function processDetections(predictions) {
+    const groups = {};
+    
+    predictions.forEach(p => {
+        if (!groups[p.class]) {
+            groups[p.class] = { 
+                name: p.class, 
+                count: 0, 
+                totalScore: 0 
+            };
+        }
+        groups[p.class].count++;
+        groups[p.class].totalScore += p.score;
+    });
+
+    // Convert to array and sort by count (descending)
+    currentGroupedResults = Object.values(groups).map(g => ({
+        name: g.name,
+        count: g.count,
+        avgScore: g.totalScore / g.count
+    })).sort((a, b) => b.count - a.count);
+}
+
+function showResultModal(imageSrc) {
     detectedSnapshot.src = imageSrc;
     predictionList.innerHTML = '';
     
-    if (predictions.length > 0) {
-        // Auto-select first prediction
-        itemNameInput.value = predictions[0].className;
+    if (currentGroupedResults.length > 0) {
+        // Auto-select first group (highest count)
+        selectedGroupIndex = 0;
+        itemNameInput.value = currentGroupedResults[0].name;
         
-        predictions.forEach((pred, index) => {
+        currentGroupedResults.forEach((group, index) => {
             const div = document.createElement('div');
             div.className = `prediction-item ${index === 0 ? 'selected' : ''}`;
-            const percentage = (pred.probability * 100).toFixed(1) + '%';
             
             div.innerHTML = `
-                <span>${pred.className}</span>
-                <span>${percentage}</span>
+                <span>${group.name}</span>
+                <span class="count-badge">x${group.count}</span>
             `;
             
             div.addEventListener('click', () => {
-                itemNameInput.value = pred.className;
+                selectedGroupIndex = index;
+                itemNameInput.value = group.name;
                 document.querySelectorAll('.prediction-item').forEach(el => el.classList.remove('selected'));
                 div.classList.add('selected');
             });
@@ -145,8 +206,9 @@ function showResultModal(imageSrc, predictions) {
             predictionList.appendChild(div);
         });
     } else {
-        predictionList.innerHTML = '<div style="padding:10px; color:#aaa">No clear objects detected.</div>';
+        predictionList.innerHTML = '<div style="padding:10px; color:#aaa">No objects detected.</div>';
         itemNameInput.value = "";
+        selectedGroupIndex = -1;
     }
     
     resultModal.classList.remove('hidden');
